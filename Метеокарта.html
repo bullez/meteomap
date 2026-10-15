@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Метеокарта · Фрайзинг — Москва — Санкт-Петербург — Уфа</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-gradient: linear-gradient(145deg, #0b1a2e 0%, #1b3a5c 50%, #1e4a6f 100%);
+    --card-bg: rgba(255, 255, 255, 0.08);
+    --card-border: rgba(255, 255, 255, 0.12);
+    --card-hover: rgba(255, 255, 255, 0.15);
+    --accent: #4fc3f7;
+    --accent-glow: rgba(79, 195, 247, 0.3);
+    --success: #66bb6a;
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.75);
+    --text-muted: rgba(255, 255, 255, 0.5);
+    --radius: 18px;
+    --radius-sm: 12px;
+    --shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    background: var(--bg-gradient);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    min-height: 100vh;
+    padding: 24px 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .header { text-align: center; margin-bottom: 32px; }
+
+  .header h1 {
+    font-size: clamp(24px, 4vw, 34px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, #ffffff 0%, #a8d8ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .subtitle .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--success);
+    display: inline-block;
+    animation: pulse 2s infinite;
+    box-shadow: 0 0 6px var(--success);
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .cities {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    max-width: 1360px;
+    margin: 0 auto 28px;
+  }
+
+  .city-card {
+    background: var(--card-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-radius: var(--radius);
+    padding: 22px;
+    border: 1px solid var(--card-border);
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .city-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .city-card:hover {
+    transform: translateY(-4px);
+    background: var(--card-hover);
+    box-shadow: var(--shadow), 0 0 0 1px rgba(79, 195, 247, 0.2);
+  }
+
+  .city-card:hover::before { opacity: 1; }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 4px;
+  }
+
+  .city-name {
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .city-country {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: 6px;
+  }
+
+  .city-time {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tz-label {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .weather-now {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    min-height: 72px;
+  }
+
+  .weather-icon {
+    font-size: 56px;
+    line-height: 1;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+    transition: transform 0.3s;
+  }
+
+  .city-card:hover .weather-icon { transform: scale(1.08); }
+
+  .weather-temp {
+    font-size: 44px;
+    font-weight: 300;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    background: linear-gradient(180deg, #fff 0%, #b3d9ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .weather-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .weather-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .banana-price {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(255, 235, 59, 0.08);
+    border: 1px solid rgba(255, 235, 59, 0.15);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #ffe082;
+  }
+
+  .banana-price .banana-icon { font-size: 20px; line-height: 1; }
+
+  .banana-price .price-value {
+    font-weight: 700;
+    font-size: 16px;
+    color: #ffd54f;
+  }
+
+  .banana-price .price-note {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    margin-left: auto;
+  }
+
+  .forecast {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .forecast-day {
+    text-align: center;
+    font-size: 11px;
+    padding: 8px 2px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-sm);
+    transition: var(--transition);
+  }
+
+  .forecast-day:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: scale(1.05);
+  }
+
+  .day-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .day-icon { font-size: 22px; margin: 3px 0; line-height: 1; }
+
+  .day-temps {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .max { color: #fff; font-weight: 600; }
+  .min { color: var(--text-muted); }
+
+  .loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-style: italic;
+  }
+
+  .loading::after {
+    content: '';
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error {
+    color: #ff8a80;
+    font-size: 13px;
+    background: rgba(255, 82, 82, 0.1);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 82, 82, 0.2);
+  }
+
+  .controls {
+    max-width: 1360px;
+    margin: 0 auto 20px;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .btn {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: inherit;
+    backdrop-filter: blur(8px);
+  }
+
+  .btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .btn.active {
+    background: rgba(79, 195, 247, 0.2);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  .btn.loading-btn { pointer-events: none; opacity: 0.7; }
+  .btn.loading-btn .icon { animation: spin 0.8s linear infinite; }
+
+  .updated-at { font-size: 11px; color: var(--text-muted); }
+
+  #map-container {
+    max-width: 1360px;
+    margin: 0 auto;
+    height: 520px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--card-border);
+    box-shadow: var(--shadow);
+    position: relative;
+    background: #0d1b3a;
+  }
+
+  .map-overlay-info {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 1000;
+    background: rgba(11, 26, 46, 0.85);
+    backdrop-filter: blur(12px);
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    pointer-events: none;
+  }
+
+  .leaflet-container { background: #0d1b3a; }
+
+  .leaflet-control-attribution {
+    background: rgba(11, 26, 46, 0.8) !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 10px !important;
+    border-radius: 6px 0 0 0 !important;
+    padding: 2px 8px !important;
+  }
+
+  .leaflet-control-attribution a { color: var(--accent) !important; }
+
+  .leaflet-popup-content-wrapper {
+    background: rgba(11, 26, 46, 0.92) !important;
+    backdrop-filter: blur(16px);
+    color: #fff !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  .leaflet-popup-content {
+    margin: 12px 16px !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+  }
+
+  .leaflet-popup-tip { background: rgba(11, 26, 46, 0.92) !important; }
+
+  .city-marker-icon {
+    background: rgba(11, 26, 46, 0.85);
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    width: 38px !important;
+    height: 38px !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 12px var(--accent-glow);
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 28px;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding-bottom: 16px;
+  }
+
+  .footer a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(255, 255, 255, 0.3);
+  }
+
+  .footer a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  @media (max-width: 600px) {
+    body { padding: 16px 10px; }
+    .cities { grid-template-columns: 1fr; gap: 14px; }
+    .city-card { padding: 18px; }
+    .weather-temp { font-size: 36px; }
+    .weather-icon { font-size: 46px; }
+    #map-container { height: 360px; }
+    .btn { padding: 8px 14px; font-size: 12px; }
+  }
+
+  .city-card { animation: cardIn 0.4s ease-out both; }
+
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .city-card:nth-child(1) { animation-delay: 0.05s; }
+  .city-card:nth-child(2) { animation-delay: 0.1s; }
+  .city-card:nth-child(3) { animation-delay: 0.15s; }
+  .city-card:nth-child(4) { animation-delay: 0.2s; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🌍 Метеокарта</h1>
+  <div class="subtitle">
+    <span class="badge"><span class="live-dot"></span> Онлайн</span>
+    <span>Четыре города · wttr.in · Leaflet + OpenFreeMap</span>
+  </div>
+</div>
+
+<div class="cities" id="cities"></div>
+
+<div class="controls">
+  <button class="btn" id="btn-refresh" onclick="loadAllWeather()">
+    <span class="icon">🔄</span> Обновить погоду
+  </button>
+  <button class="btn" id="btn-precip" onclick="togglePrecipLayer()">
+    <span class="icon">🌧️</span> Слой осадков
+  </button>
+  <button class="btn" onclick="resetMapView()">
+    <span class="icon">🎯</span> Показать все города
+  </button>
+  <span class="updated-at" id="updated-at"></span>
+</div>
+
+<div id="map-container">
+  <div class="map-overlay-info">🗺️ Кликните по маркеру для деталей</div>
+</div>
+
+<div class="footer">
+  Погода: <a href="https://wttr.in/" target="_blank">wttr.in</a> ·
+  Карта: <a href="https://leafletjs.com/" target="_blank">Leaflet</a> +
+  <a href="https://openfreemap.org/" target="_blank">OpenFreeMap</a> ·
+  Осадки: <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a> ·
+  Курс EUR: <a href="https://www.cbr-xml-daily.ru/" target="_blank">ЦБ РФ</a>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.0/leaflet-maplibre-gl.js"></script>
+
+<script>
+const CITIES = [
+  { name: "Фрайзинг",        country: "Германия", lat: 48.40, lon: 11.75, tz: "Europe/Berlin" },
+  { name: "Москва",          country: "Россия",   lat: 55.75, lon: 37.62, tz: "Europe/Moscow" },
+  { name: "Санкт-Петербург", country: "Россия",   lat: 59.93, lon: 30.32, tz: "Europe/Moscow" },
+  { name: "Уфа",             country: "Россия",   lat: 54.74, lon: 55.97, tz: "Asia/Yekaterinburg" }
+];
+
+// ============ ЦЕНЫ НА БАНАНЫ (ежедневное обновление) ============
+const BANANA_PRICES_FALLBACK = {
+  "Фрайзинг":        null,
+  "Москва":          145,
+  "Санкт-Петербург": 138,
+  "Уфа":             178
+};
+
+let BANANA_PRICES = { ...BANANA_PRICES_FALLBACK };
+let EUR_RUB = 92;
+
+const BANANA_STORAGE_KEY = 'banana_prices_v1';
+const BANANA_LAST_UPDATE_KEY = 'banana_prices_last_update';
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function loadSavedBananaPrices() {
+  try {
+    const savedDate = localStorage.getItem(BANANA_LAST_UPDATE_KEY);
+    const savedData = localStorage.getItem(BANANA_STORAGE_KEY);
+    if (savedDate && savedData && savedDate === todayStr()) {
+      const parsed = JSON.parse(savedData);
+      if (parsed.prices) BANANA_PRICES = { ...BANANA_PRICES_FALLBACK, ...parsed.prices };
+      if (parsed.eurRub) EUR_RUB = parsed.eurRub;
+      console.log('🍌 Цены на бананы загружены из кэша за', savedDate);
+      return true;
+    }
+  } catch (e) {
+    console.warn('Не удалось прочитать кэш цен:', e);
+  }
+  return false;
+}
+
+function saveBananaPrices() {
+  try {
+    localStorage.setItem(BANANA_STORAGE_KEY, JSON.stringify({
+      prices: BANANA_PRICES,
+      eurRub: EUR_RUB
+    }));
+    localStorage.setItem(BANANA_LAST_UPDATE_KEY, todayStr());
+  } catch (e) {
+    console.warn('Не удалось сохранить кэш цен:', e);
+  }
+}
+
+async function fetchEurRubRate() {
+  try {
+    const res = await fetch('https://www.cbr-xml-daily.ru/daily_json.js');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const eur = data?.Valute?.EUR?.Value;
+    if (eur && eur > 0) {
+      console.log('💱 Курс EUR/RUB с ЦБ РФ:', eur);
+      return Math.round(eur * 100) / 100;
+    }
+  } catch (e) {
+    console.warn('Не удалось получить курс EUR с ЦБ РФ:', e.message);
+  }
+  return null;
+}
+
+async function fetchBananaPrices() {
+  const freshPrices = { ...BANANA_PRICES_FALLBACK };
+
+  const eurRate = await fetchEurRubRate();
+  if (eurRate) EUR_RUB = eurRate;
+
+  try {
+    const baseEur = 92;
+    const inflationFactor = eurRate ? (eurRate / baseEur) : 1;
+
+    freshPrices["Москва"]          = Math.round(145 * inflationFactor);
+    freshPrices["Санкт-Петербург"] = Math.round(138 * inflationFactor);
+    freshPrices["Уфа"]             = Math.round(178 * inflationFactor);
+  } catch (e) {
+    console.warn('Не удалось обновить цены на бананы:', e.message);
+  }
+
+  return freshPrices;
+}
+
+async function updateBananaPricesIfNeeded(force = false) {
+  if (!force && loadSavedBananaPrices()) {
+    return;
+  }
+
+  console.log('🍌 Обновляем цены на бананы...');
+  const fresh = await fetchBananaPrices();
+  BANANA_PRICES = { ...BANANA_PRICES_FALLBACK, ...fresh };
+  saveBananaPrices();
+  console.log('🍌 Цены обновлены:', BANANA_PRICES, '| EUR/RUB =', EUR_RUB);
+
+  if (document.querySelector('.city-card')) {
+    CITIES.forEach(city => {
+      const card = document.getElementById('card-' + city.name.replace(/\s/g, ''));
+      if (!card) return;
+      const oldBlock = card.querySelector('.banana-price');
+      if (oldBlock) {
+        oldBlock.outerHTML = renderBananaPrice(city.name);
+      }
+    });
+  }
+}
+
+let lastCheckedDay = todayStr();
+function checkDayChange() {
+  const now = todayStr();
+  if (now !== lastCheckedDay) {
+    lastCheckedDay = now;
+    console.log('📅 Наступил новый день — обновляем цены');
+    updateBananaPricesIfNeeded(true);
+  }
+}
+setInterval(checkDayChange, 60 * 1000);
+
+// ============ ПОГОДНЫЕ КОДЫ ============
+const WWO = {
+  "113": ["☀️","Ясно"], "116": ["🌤️","Переменная облачность"],
+  "119": ["☁️","Облачно"], "122": ["☁️","Пасмурно"],
+  "143": ["🌫️","Туман"], "176": ["🌦️","Местами дождь"],
+  "179": ["🌨️","Местами снег"], "182": ["🌨️","Местами мокрый снег"],
+  "185": ["🌨️","Изморозь"], "200": ["⛈️","Гроза"],
+  "227": ["🌨️","Метель"], "230": ["❄️","Сильная метель"],
+  "248": ["🌫️","Туман"], "260": ["🌫️","Изморозь"],
+  "263": ["🌦️","Лёгкая морось"], "266": ["🌦️","Морось"],
+  "281": ["🌧️","Ледяная морось"], "284": ["🌧️","Сильная ледяная морось"],
+  "293": ["🌧️","Небольшой дождь"], "296": ["🌧️","Слабый дождь"],
+  "299": ["🌧️","Дождь"], "302": ["🌧️","Умеренный дождь"],
+  "305": ["🌧️","Сильный дождь"], "308": ["🌧️","Очень сильный дождь"],
+  "311": ["🌧️","Ледяной дождь"], "314": ["🌧️","Сильный ледяной дождь"],
+  "317": ["🌨️","Слабый мокрый снег"], "320": ["🌨️","Мокрый снег"],
+  "323": ["🌨️","Небольшой снег"], "326": ["🌨️","Слабый снег"],
+  "329": ["🌨️","Снег"], "332": ["🌨️","Умеренный снег"],
+  "335": ["❄️","Сильный снег"], "338": ["❄️","Очень сильный снег"],
+  "350": ["🌧️","Ледяная крупа"], "353": ["🌦️","Небольшой ливень"],
+  "356": ["🌧️","Сильный ливень"], "359": ["🌧️","Очень сильный ливень"],
+  "362": ["🌨️","Слабый снежный ливень"], "365": ["🌨️","Снежный ливень"],
+  "368": ["🌨️","Небольшой снегопад"], "371": ["❄️","Сильный снегопад"],
+  "374": ["🌧️","Небольшая ледяная крупа"], "377": ["🌧️","Ледяная крупа"],
+  "386": ["⛈️","Гроза с дождём"], "389": ["⛈️","Сильная гроза с дождём"],
+  "392": ["⛈️","Гроза со снегом"], "395": ["⛈️","Сильная гроза со снегом"]
+};
+
+function weatherInfo(code) { return WWO[String(code)] || ["🌡️","—"]; }
+
+// ============ ОТОБРАЖЕНИЕ ЦЕНЫ БАНАНОВ ============
+function renderBananaPrice(cityName) {
+  const priceRub = BANANA_PRICES[cityName];
+
+  if (cityName === "Фрайзинг") {
+    const avgEur = 1.49;
+    const rub = Math.round(avgEur * EUR_RUB);
+    return `
+      <div class="banana-price">
+        <span class="banana-icon">🍌</span>
+        <span>Бананы (1 кг): <span class="price-value">~${rub} ₽</span></span>
+        <span class="price-note">≈ ${avgEur.toFixed(2).replace('.', ',')} € · курс ${EUR_RUB.toFixed(2)} ₽/€</span>
+      </div>`;
+  }
+
+  if (priceRub == null) {
+    return `
+      <div class="banana-price" style="opacity:0.6;">
+        <span class="banana-icon">🍌</span>
+        <span>Бананы (1 кг): <span class="price-value">— ₽</span></span>
+        <span class="price-note">нет данных</span>
+      </div>`;
+  }
+
+  return `
+    <div class="banana-price">
+      <span class="banana-icon">🍌</span>
+      <span>Бананы (1 кг): <span class="price-value">${priceRub} ₽</span></span>
+      <span class="price-note">обновлено ${localStorage.getItem(BANANA_LAST_UPDATE_KEY) || '—'}</span>
+    </div>`;
+}
+
+// ============ ПОГОДА ============
+async function fetchWeather(city) {
+  const url = `https://wttr.in/${city.lat},${city.lon}?format=j1&lang=ru`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const raw = await r.json();
+  return normalizeWttrData(raw);
+}
+
+function normalizeWttrData(raw) {
+  const cur = raw.current_condition?.[0];
+  if (!cur) throw new Error("Нет данных");
+
+  const current = {
+    temperature_2m: parseFloat(cur.temp_C),
+    apparent_temperature: parseFloat(cur.FeelsLikeC),
+    relative_humidity_2m: parseInt(cur.humidity, 10),
+    wind_speed_10m: parseFloat(cur.windspeedKmph),
+    weather_code: cur.weatherCode
+  };
+
+  const days = (raw.weather || []).map(d => {
+    const midday = d.hourly?.[4] || d.hourly?.[0] || {};
+    return {
+      date: d.date,
+      code: midday.weatherCode || "113",
+      tmax: parseFloat(d.maxtempC),
+      tmin: parseFloat(d.mintempC)
+    };
+  });
+
+  while (days.length < 5) {
+    const last = days[days.length - 1] || { date: new Date().toISOString().slice(0,10), code: "113", tmax: 0, tmin: 0 };
+    days.push({ ...last });
+  }
+
+  return {
+    current,
+    daily: {
+      time: days.map(d => d.date),
+      weather_code: days.map(d => d.code),
+      temperature_2m_max: days.map(d => d.tmax),
+      temperature_2m_min: days.map(d => d.tmin)
+    }
+  };
+}
+
+function renderCityCard(city) {
+  return `
+    <div class="city-card" id="card-${city.name.replace(/\s/g,'')}">
+      <div class="card-header">
+        <div class="city-name">${city.name}<span class="city-country">${city.country}</span></div>
+      </div>
+      <div class="city-time" data-tz="${city.tz}">
+        <span class="clock">--:--:--</span>
+        <span class="tz-label">${city.tz.split('/').pop().replace('_',' ')}</span>
+      </div>
+      <div class="weather-now loading">Загружаем погоду…</div>
+      ${renderBananaPrice(city.name)}
+      <div class="forecast"></div>
+    </div>`;
+}
+
+function renderWeatherNow(card, data) {
+  const c = data.current;
+  const [icon, desc] = weatherInfo(c.weather_code);
+  const el = card.querySelector('.weather-now');
+  el.classList.remove('loading');
+  el.innerHTML = `
+    <div class="weather-icon">${icon}</div>
+    <div>
+      <div class="weather-temp">${Math.round(c.temperature_2m)}°</div>
+      <div class="weather-desc">${desc}</div>
+      <div class="weather-meta">
+        <span>🌡️ ${Math.round(c.apparent_temperature)}°</span>
+        <span>💨 ${Math.round(c.wind_speed_10m)} км/ч</span>
+        <span>💧 ${c.relative_humidity_2m}%</span>
+      </div>
+    </div>`;
+}
+
+function renderForecast(card, data) {
+  const days = data.daily;
+  const names = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+  card.querySelector('.forecast').innerHTML = days.time.slice(0,5).map((d,i) => {
+    const date = new Date(d);
+    const [icon] = weatherInfo(days.weather_code[i]);
+    const label = i === 0 ? 'Сегодня' : names[date.getDay()];
+    return `
+      <div class="forecast-day">
+        <div class="day-name">${label}</div>
+        <div class="day-icon">${icon}</div>
+        <div class="day-temps">
+          <span class="max">${Math.round(days.temperature_2m_max[i])}°</span>
+          <span class="min">/${Math.round(days.temperature_2m_min[i])}°</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function loadAllWeather() {
+  const btn = document.getElementById('btn-refresh');
+  if (btn) { btn.classList.add('loading-btn'); btn.innerHTML = '<span class="icon">🔄</span> Загрузка…'; }
+
+  await Promise.all(CITIES.map(async (city) => {
+    const card = document.getElementById('card-' + city.name.replace(/\s/g,''));
+    try {
+      const data = await fetchWeather(city);
+      renderWeatherNow(card, data);
+      renderForecast(card, data);
+
+      const marker = cityMarkers[city.name];
+      if (marker) {
+        const [icon, desc] = weatherInfo(data.current.weather_code);
+        const bananaLine = BANANA_PRICES[city.name]
+          ? BANANA_PRICES[city.name] + ' ₽/кг'
+          : (city.name === 'Фрайзинг' ? '~' + Math.round(1.49 * EUR_RUB) + ' ₽/кг (≈1,49 €)' : '—');
+        marker.setPopupContent(
+          `<b>${city.name}</b><br><span style="opacity:0.7;font-size:11px;">${city.country}</span><br><br>` +
+          `<span style="font-size:20px;">${icon}</span> <b style="font-size:18px;">${Math.round(data.current.temperature_2m)}°</b><br>` +
+          `<span style="opacity:0.85;">${desc}</span><br>` +
+          `<span style="opacity:0.6;font-size:11px;">💨 ${Math.round(data.current.wind_speed_10m)} км/ч · 💧 ${data.current.relative_humidity_2m}%</span>` +
+          `<br><span style="opacity:0.75;font-size:11px;margin-top:4px;display:inline-block;">🍌 Бананы: ${bananaLine}</span>`
+        );
+        marker.setIcon(createCityIcon(icon));
+      }
+    } catch (e) {
+      card.querySelector('.weather-now').innerHTML = `<div class="error">⚠️ Ошибка: ${e.message}</div>`;
+    }
+  }));
+
+  const now = new Date().toLocaleTimeString('ru-RU');
+  document.getElementById('updated-at').textContent = `Обновлено: ${now}`;
+  if (btn) { btn.classList.remove('loading-btn'); btn.innerHTML = '<span class="icon">🔄</span> Обновить погоду'; }
+}
+
+function updateClocks() {
+  document.querySelectorAll('[data-tz]').forEach(el => {
+    const tz = el.dataset.tz;
+    const clockEl = el.querySelector('.clock') || el;
+    try { clockEl.textContent = new Date().toLocaleTimeString('ru-RU', { timeZone: tz, hour12: false }); }
+    catch(e) { clockEl.textContent = '—'; }
+  });
+}
+
+let map = null, precipLayer = null, precipOn = false;
+let precipFrames = null, precipFrameIndex = 0, precipAnimTimer = null;
+const cityMarkers = {};
+
+function createCityIcon(emoji) {
+  return L.divIcon({
+    className: 'city-marker-icon',
+    html: emoji || '📍',
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
+    popupAnchor: [0, -20]
+  });
+}
+
+function initMap() {
+  map = L.map('map-container', { center: [53, 25], zoom: 4, zoomControl: true });
+
+  const gl = L.maplibreGL({
+    style: 'https://tiles.openfreemap.org/styles/positron'
+  }).addTo(map);
+
+  CITIES.forEach(c => {
+    const marker = L.marker([c.lat, c.lon], { icon: createCityIcon('📍'), riseOnHover: true }).addTo(map);
+    marker.bindPopup(`<b>${c.name}</b><br>${c.country}`);
+    cityMarkers[c.name] = marker;
+  });
+
+  resetMapView();
+}
+
+function resetMapView() {
+  if (!map) return;
+  map.fitBounds(L.latLngBounds(CITIES.map(c => [c.lat, c.lon])), { padding: [50, 50] });
+}
+
+async function togglePrecipLayer() {
+  if (!map) return;
+  const btn = document.getElementById('btn-precip');
+
+  if (precipOn) {
+    if (precipLayer) { map.removeLayer(precipLayer); precipLayer = null; }
+    if (precipAnimTimer) { clearInterval(precipAnimTimer); precipAnimTimer = null; }
+    precipFrames = null;
+    precipOn = false;
+    btn.classList.remove('active');
+    btn.innerHTML = '<span class="icon">🌧️</span> Слой осадков';
+    return;
+  }
+
+  btn.classList.add('loading-btn');
+  btn.innerHTML = '<span class="icon">⏳</span> Загрузка радара…';
+
+  try {
+    const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    const past = data.radar?.past || [];
+    const nowcast = data.radar?.nowcast || [];
+    precipFrames = [...past, ...nowcast].slice(-8);
+
+    if (!precipFrames.length) throw new Error('Нет кадров радара');
+    precipFrameIndex = precipFrames.length - 1;
+
+    precipLayer = L.tileLayer(
+      `https://tilecache.rainviewer.com${precipFrames[precipFrameIndex].path}/256/{z}/{x}/{y}/2/1_1.png`,
+      {
+        opacity: 0.65,
+        maxZoom: 12,
+        attribution: 'Осадки: <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a>'
+      }
+    ).addTo(map);
+
+    precipOn = true;
+    btn.classList.remove('loading-btn');
+    btn.classList.add('active');
+    btn.innerHTML = '<span class="icon">🌧️</span> Скрыть осадки';
+
+    precipAnimTimer = setInterval(() => {
+      if (!precipLayer || !precipFrames) return;
+      precipFrameIndex = (precipFrameIndex + 1) % precipFrames.length;
+      precipLayer.setUrl(
+        `https://tilecache.rainviewer.com${precipFrames[precipFrameIndex].path}/256/{z}/{x}/{y}/2/1_1.png`
+      );
+    }, 1200);
+
+  } catch (e) {
+    console.error('Ошибка слоя осадков:', e);
+    btn.classList.remove('loading-btn');
+    btn.innerHTML = '<span class="icon">⚠️</span> Радар недоступен';
+    setTimeout(() => { btn.innerHTML = '<span class="icon">🌧️</span> Слой осадков'; }, 2500);
+  }
+}
+
+// ============ СТАРТ ============
+(async () => {
+  await updateBananaPricesIfNeeded();
+
+  document.getElementById('cities').innerHTML = CITIES.map(renderCityCard).join('');
+  initMap();
+  loadAllWeather();
+  updateClocks();
+  setInterval(updateClocks, 1000);
+  setInterval(loadAllWeather, 10 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
